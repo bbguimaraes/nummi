@@ -1,5 +1,7 @@
+mod cache;
 mod db;
 mod dec;
+mod net;
 
 const PROG_NAME: &'static str = "nummi";
 
@@ -13,6 +15,8 @@ Commands:
 
   <none>                     List all entries.
   currencies                 List all currencies present in the database.
+  update-cache               Force an update of the currency exchange cache
+                             file.
 "#,
         exe = std::env::args().next().unwrap(),
         prog_name = PROG_NAME,
@@ -60,6 +64,12 @@ fn cmd_currencies(d: &std::path::Path) {
     }
 }
 
+fn update_cache(force: bool) -> std::io::Result<cache::Cache> {
+    let mut cache = cache::Cache::new();
+    cache.read_currencies(&cache::dir(), force, || net::fetch_currencies())?;
+    Ok(cache)
+}
+
 fn main() {
     let (dir, args) = match parse_args() {
         None => return,
@@ -69,6 +79,7 @@ fn main() {
     match args.next().map(|x| x.as_str()).unwrap_or_default() {
         "" => cmd_list(&dir),
         "currencies" => cmd_currencies(&dir),
+        "update-cache" => update_cache(true).and(Ok(())).unwrap(),
         x => panic!("invalid command: {}", x),
     }
 }
