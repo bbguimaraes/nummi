@@ -4,6 +4,13 @@ pub struct Decimal {
     v: f64,
 }
 
+impl Decimal {
+    // XXX
+    pub fn new(v: f64) -> Decimal {
+        Decimal { v }
+    }
+}
+
 impl std::convert::TryFrom<&str> for Decimal {
     type Error = ();
 

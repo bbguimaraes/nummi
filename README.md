@@ -57,3 +57,19 @@ database.
 ### `currencies`
 
 Lists all unique currencies from all entries.
+
+
+### `update-cache`
+
+Force an update of the currency exchange cache file ([see
+below](#currency-conversion)).
+
+
+Currency conversion
+-------------------
+
+In order to summarize entries in different currencies the exchange rates from
+the [European Central Bank](https://www.ecb.europa.eu) is downloaded and cached
+locally (in `$XDG_CACHE_HOME/nummi/currencies`, TTL: 1d).  Values in the
+database entries are then converted to EUR (note: this is a gross
+simplification and in no way an attempt to be a financially sound tool).

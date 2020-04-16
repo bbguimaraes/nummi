@@ -2,6 +2,18 @@ use std::convert::TryFrom;
 
 use super::dec;
 
+#[derive(Debug, PartialEq, PartialOrd)]
+pub struct Currency {
+    pub name: [u8; 3],
+    pub to_eur: dec::Decimal,
+}
+
+impl Currency {
+    pub fn name_str(&self) -> &str {
+        std::str::from_utf8(&self.name).unwrap()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Entry {
     pub date: String,
