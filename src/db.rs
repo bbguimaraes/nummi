@@ -65,6 +65,23 @@ impl Entry {
             .collect()
     }
 
+    pub fn total<'a>(
+        it: impl Iterator<Item = &'a Entry>,
+    ) -> Vec<([u8; 3], dec::Decimal, dec::Decimal)> {
+        let mut ret = std::collections::HashMap::new();
+        for x in it {
+            let (pos, neg) = ret
+                .entry(x.currency)
+                .or_insert((dec::Decimal::new(0.0), dec::Decimal::new(0.0)));
+            if x.value < dec::Decimal::new(0.0) {
+                *neg += x.value
+            } else {
+                *pos += x.value
+            }
+        }
+        ret.iter().map(|(k, v)| (*k, v.0, v.1)).collect()
+    }
+
     pub fn read_db_file(
         r: &mut impl std::io::Read,
         v: &mut Vec<Entry>,

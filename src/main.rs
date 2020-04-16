@@ -2,6 +2,7 @@ mod cache;
 mod db;
 mod dec;
 mod net;
+mod plot;
 
 const PROG_NAME: &'static str = "nummi";
 
@@ -17,6 +18,8 @@ Commands:
   currencies                 List all currencies present in the database.
   update-cache               Force an update of the currency exchange cache
                              file.
+  plot                       Generate a `gnuplot` graphic summarizing with the
+                             monthly historical total.
 "#,
         exe = std::env::args().next().unwrap(),
         prog_name = PROG_NAME,
@@ -64,6 +67,16 @@ fn cmd_currencies(d: &std::path::Path) {
     }
 }
 
+fn cmd_plot(d: &std::path::Path) {
+    let entries = db::Entry::read_db(&d).unwrap();
+    let currencies = update_cache(false).unwrap().currencies;
+    let currencies: std::collections::HashMap<_, _> = currencies
+        .iter()
+        .map(|x| (x.name, dec::Decimal::new(1.0) / x.to_eur))
+        .collect();
+    plot::plot(&entries, &currencies).unwrap();
+}
+
 fn update_cache(force: bool) -> std::io::Result<cache::Cache> {
     let mut cache = cache::Cache::new();
     cache.read_currencies(&cache::dir(), force, || net::fetch_currencies())?;
@@ -80,6 +93,7 @@ fn main() {
         "" => cmd_list(&dir),
         "currencies" => cmd_currencies(&dir),
         "update-cache" => update_cache(true).and(Ok(())).unwrap(),
+        "plot" => cmd_plot(&dir),
         x => panic!("invalid command: {}", x),
     }
 }
