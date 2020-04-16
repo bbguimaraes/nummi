@@ -65,6 +65,29 @@ Force an update of the currency exchange cache file ([see
 below](#currency-conversion)).
 
 
+### `plot`
+
+Generate a `gnuplot` graphic summarizing the historical values in the database.
+Each entry is converted to EUR ([see below](#currency-conversion)) and a
+monthly total is calculated.  Bars show the monthly income and expense, lines
+show the discrete and accumulated net values.
+
+```
+2019-12-01 300.00eur a entry0
+2019-12-01 -100.00eur a entry1
+2020-01-01 700.00usd a entry2
+2020-01-02 -500.00eur a entry3
+2020-02-01 -200.00eur a entry4
+2020-02-01 300.00eur a entry5
+2020-03-01 -1200.00brl a entry6
+2020-03-01 1800.00brl a entry7
+2020-04-01 4000.00czk a entry8
+2020-04-01 -250.00usd a entry9
+```
+
+![plot.png](./doc/screenshots/plot.png)
+
+
 Currency conversion
 -------------------
 
