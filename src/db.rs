@@ -44,6 +44,15 @@ impl Entry {
         )
     }
 
+    pub fn unique_currencies(v: &[Entry]) -> Vec<[u8; 3]> {
+        v.iter()
+            .map(|x| x.currency)
+            .collect::<std::collections::HashSet<_>>()
+            .iter()
+            .copied()
+            .collect()
+    }
+
     pub fn read_db_file(
         r: &mut impl std::io::Read,
         v: &mut Vec<Entry>,

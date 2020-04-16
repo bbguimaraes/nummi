@@ -12,6 +12,7 @@ fn usage() {
 Commands:
 
   <none>                     List all entries.
+  currencies                 List all currencies present in the database.
 "#,
         exe = std::env::args().next().unwrap(),
         prog_name = PROG_NAME,
@@ -53,6 +54,12 @@ fn cmd_list(d: &std::path::Path) {
     }
 }
 
+fn cmd_currencies(d: &std::path::Path) {
+    for x in db::Entry::unique_currencies(&db::Entry::read_db(&d).unwrap()) {
+        println!("{}", std::str::from_utf8(&x).unwrap());
+    }
+}
+
 fn main() {
     let (dir, args) = match parse_args() {
         None => return,
@@ -61,6 +68,7 @@ fn main() {
     let mut args = args.iter();
     match args.next().map(|x| x.as_str()).unwrap_or_default() {
         "" => cmd_list(&dir),
+        "currencies" => cmd_currencies(&dir),
         x => panic!("invalid command: {}", x),
     }
 }

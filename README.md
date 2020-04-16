@@ -52,3 +52,8 @@ commands.
 
 The default command when none is specified is to list all entries in the
 database.
+
+
+### `currencies`
+
+Lists all unique currencies from all entries.
