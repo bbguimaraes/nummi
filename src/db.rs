@@ -144,3 +144,112 @@ impl Iterator for Find {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Entry;
+    use super::dec;
+
+    const EUR: [u8; 3] = [b'e', b'u', b'r'];
+    const USD: [u8; 3] = [b'u', b's', b'd'];
+    const GBP: [u8; 3] = [b'g', b'b', b'p'];
+
+    #[test]
+    fn from_line() {
+        let e = Entry::from_line(
+            "2020-04-20 -100.00eur t description");
+        assert_eq!(e.date, "2020-04-20");
+        assert_eq!(e.value, super::dec::Decimal::new(-100.0));
+        assert_eq!(e.currency, EUR);
+        assert_eq!(e.tag, b't');
+        assert_eq!(e.text, "description");
+    }
+
+    #[test]
+    fn to_line() {
+        let e = Entry {
+            date: String::from("2020-04-20"),
+            value: super::dec::Decimal::new(-100.0),
+            currency: EUR,
+            tag: b't',
+            text: String::from("description"),
+        };
+        assert_eq!(e.to_line(), "2020-04-20 -100.00eur t description");
+    }
+
+    #[test]
+    fn unique_currencies() {
+        let mut ret = Entry::unique_currencies(
+            &[EUR, GBP, EUR, GBP, USD]
+                .iter()
+                .map(|&c| Entry {
+                    date: String::from("2020-04-20"),
+                    value: super::dec::Decimal::new(0.0),
+                    currency: c,
+                    tag: b't',
+                    text: String::from("description"),
+                })
+                .collect::<Vec<Entry>>());
+        ret.sort();
+        assert_eq!(ret, vec![EUR, GBP, USD]);
+    }
+
+    #[test]
+    fn total() {
+        let v: Vec<Entry> = [
+            (dec::Decimal::new(-100.0), EUR),
+            (dec::Decimal::new(-200.0), EUR),
+            (dec::Decimal::new( 300.0), USD),
+            (dec::Decimal::new(-400.0), USD),
+            (dec::Decimal::new( 500.0), EUR),
+        ].iter().map(|&(v, c)| Entry {
+            date: String::from("2020-04-20"),
+            value: v,
+            currency: c,
+            tag: b't',
+            text: String::from("description"),
+        }).collect();
+        let mut total = Entry::total(v.iter());
+        total.sort_by(|l, r| l.0.cmp(&r.0));
+        assert_eq!(total, vec![(
+            EUR,
+            dec::Decimal::new(500.0),
+            dec::Decimal::new(-300.0),
+        ), (
+            USD,
+            dec::Decimal::new(300.0),
+            dec::Decimal::new(-400.0),
+        )]);
+    }
+
+    #[test]
+    fn read_db_file() -> std::io::Result<()> {
+        let input = b"\
+2020-04-18 -100.00eur t description0
+2020-04-19 200.00usd u description1
+2020-04-20 -300.00gbp v description2
+";
+        let mut v = Vec::new();
+        Entry::read_db_file(&mut &input[..], &mut v)?;
+        assert_eq!(v, vec![Entry {
+            date: String::from("2020-04-18"),
+            value: dec::Decimal::new(-100.0),
+            currency: EUR,
+            tag: b't',
+            text: String::from("description0"),
+        }, Entry {
+            date: String::from("2020-04-19"),
+            value: dec::Decimal::new(200.0),
+            currency: USD,
+            tag: b'u',
+            text: String::from("description1"),
+        }, Entry {
+            date: String::from("2020-04-20"),
+            value: dec::Decimal::new(-300.0),
+            currency: GBP,
+            tag: b'v',
+            text: String::from("description2"),
+        }]);
+        Ok(())
+    }
+}
