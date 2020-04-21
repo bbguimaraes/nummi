@@ -32,33 +32,34 @@ impl Iterator for DateSeries {
 pub fn plot(
     v: &[db::Entry],
     to_eur: &std::collections::HashMap<[u8; 3], dec::Decimal>,
+    end: &chrono::NaiveDate,
 ) -> std::io::Result<()> {
+    plot_data(&gen_data(v, to_eur, end)?)
+}
+
+fn gen_data(
+    v: &[db::Entry],
+    to_eur: &std::collections::HashMap<[u8; 3], dec::Decimal>,
+    end: &chrono::NaiveDate,
+) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     let series = DateSeries::new(
         &chrono::NaiveDate::parse_from_str(&v[0].date, "%Y-%m-%d").unwrap());
-    let end = chrono::Local::now().naive_local().date();
     let mut sum = dec::Decimal::new(0.0);
     for d in series.take_while(|x| x <= &end) {
-        let (y, m) = (d.year(), d.month());
-        let date = format!("{}-{:02}", y, m);
+        let date = format!("{}-{:02}", d.year(), d.month());
         // TODO entries are ordered, implement `group_by`
         let filtered = v.iter().filter(|x| x.date.starts_with(&date));
-        let eur_total = db::Entry::total(filtered).iter().fold(
-            (dec::Decimal::new(0.0), dec::Decimal::new(0.0)),
-            |(acc_pos, acc_neg), (cur, pos, neg)| {
-                let conv = to_eur[cur];
-                (acc_pos + *pos * conv, acc_neg + *neg * conv)
-            },
-        );
-        let net = eur_total.0 + eur_total.1;
+        let (pos, neg) = db::Entry::total_with_conversion(filtered, &to_eur);
+        let net = pos + neg;
         sum += net;
         write!(
             &mut out,
             "{} {:.2} {:.2} {:.2} {:.2}\n",
-            date, eur_total.0, eur_total.1, net, sum,
+            date, pos, neg, net, sum,
         )?;
     }
-    plot_data(&out)
+    Ok(out)
 }
 
 // TODO adjust width
@@ -91,4 +92,68 @@ plot \
 	$d using 1:5:5       with labels tc "dark-green"  notitle
 "#,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DateSeries;
+
+    use super::db;
+    use super::dec;
+
+    #[test]
+    fn date_series() {
+        let s = DateSeries::new(&chrono::NaiveDate::from_ymd(2020, 04, 1));
+        let end = chrono::NaiveDate::from_ymd(2021, 04, 1);
+        let v = s.take_while(|x| x <= &end).collect::<Vec<_>>();
+        assert_eq!(v, vec![
+            chrono::NaiveDate::from_ymd(2020, 04, 1),
+            chrono::NaiveDate::from_ymd(2020, 05, 1),
+            chrono::NaiveDate::from_ymd(2020, 06, 1),
+            chrono::NaiveDate::from_ymd(2020, 07, 1),
+            chrono::NaiveDate::from_ymd(2020, 08, 1),
+            chrono::NaiveDate::from_ymd(2020, 09, 1),
+            chrono::NaiveDate::from_ymd(2020, 10, 1),
+            chrono::NaiveDate::from_ymd(2020, 11, 1),
+            chrono::NaiveDate::from_ymd(2020, 12, 1),
+            chrono::NaiveDate::from_ymd(2021, 01, 1),
+            chrono::NaiveDate::from_ymd(2021, 02, 1),
+            chrono::NaiveDate::from_ymd(2021, 03, 1),
+            chrono::NaiveDate::from_ymd(2021, 04, 1),
+        ]);
+    }
+
+    #[test]
+    fn gen_data() -> std::io::Result<()> {
+        const EUR: [u8; 3] = [b'e', b'u', b'r'];
+        const USD: [u8; 3] = [b'u', b's', b'd'];
+        let entries: Vec<db::Entry> = [
+            ("2020-01-01", dec::Decimal::new(-100.0), EUR),
+            ("2020-01-01", dec::Decimal::new(-200.0), EUR),
+            ("2020-01-02", dec::Decimal::new( 300.0), USD),
+            ("2020-02-01", dec::Decimal::new(-400.0), USD),
+            ("2020-03-01", dec::Decimal::new( 500.0), EUR),
+        ].iter().map(|&(d, v, c)| db::Entry {
+            date: String::from(d),
+            value: v,
+            currency: c,
+            tag: b't',
+            text: String::from("description"),
+        }).collect();
+        let to_eur: std::collections::HashMap<_, _> = [
+            (EUR, dec::Decimal::new(1.0)),
+            (USD, dec::Decimal::new(3.0)),
+        ].iter().copied().collect();
+        let ret = super::gen_data(
+            &entries,
+            &to_eur,
+            &chrono::NaiveDate::from_ymd(2020, 4, 1))?;
+        assert_eq!(std::str::from_utf8(&ret).unwrap(), "\
+2020-01 900.00 -300.00 600.00 600.00
+2020-02 0.00 -1200.00 -1200.00 -600.00
+2020-03 500.00 0.00 500.00 -100.00
+2020-04 0.00 0.00 0.00 -100.00
+");
+        Ok(())
+    }
 }
