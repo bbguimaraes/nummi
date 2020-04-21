@@ -74,7 +74,10 @@ fn cmd_plot(d: &std::path::Path) {
         .iter()
         .map(|x| (x.name, dec::Decimal::new(1.0) / x.to_eur))
         .collect();
-    plot::plot(&entries, &currencies).unwrap();
+    plot::plot(
+        &entries,
+        &currencies,
+        &chrono::Local::now().naive_local().date()).unwrap();
 }
 
 fn update_cache(force: bool) -> std::io::Result<cache::Cache> {

@@ -82,6 +82,19 @@ impl Entry {
         ret.iter().map(|(k, v)| (*k, v.0, v.1)).collect()
     }
 
+    pub fn total_with_conversion<'a>(
+        it: impl Iterator<Item = &'a Entry>,
+        conv: &std::collections::HashMap<[u8; 3], dec::Decimal>,
+    ) -> (dec::Decimal, dec::Decimal) {
+        Entry::total(it).iter().fold(
+            (dec::Decimal::new(0.0), dec::Decimal::new(0.0)),
+            |(pos, neg), (cur, p, n)| {
+                let c = conv[cur];
+                (pos + *p * c, neg + *n * c)
+            },
+        )
+    }
+
     pub fn read_db_file(
         r: &mut impl std::io::Read,
         v: &mut Vec<Entry>,
@@ -220,6 +233,31 @@ mod tests {
             dec::Decimal::new(300.0),
             dec::Decimal::new(-400.0),
         )]);
+    }
+
+    #[test]
+    fn total_with_conversion() {
+        let v: Vec<Entry> = [
+            (dec::Decimal::new(-100.0), EUR),
+            (dec::Decimal::new(-200.0), EUR),
+            (dec::Decimal::new( 300.0), USD),
+            (dec::Decimal::new(-400.0), USD),
+            (dec::Decimal::new( 500.0), EUR),
+        ].iter().map(|&(v, c)| Entry {
+            date: String::from("2020-04-20"),
+            value: v,
+            currency: c,
+            tag: b't',
+            text: String::from("description"),
+        }).collect();
+        let conv = [
+            (EUR, dec::Decimal::new(1.0)),
+            (USD, dec::Decimal::new(3.0)),
+        ].iter().copied().collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(Entry::total_with_conversion(v.iter(), &conv), (
+            dec::Decimal::new(1400.0),
+            dec::Decimal::new(-1500.0),
+        ));
     }
 
     #[test]
