@@ -27,11 +27,17 @@ Commands:
     )
 }
 
-fn parse_args() -> Option<(std::path::PathBuf, Vec<String>)> {
+struct Configuration {
+    exe: String,
+    dir: std::path::PathBuf,
+    args: Vec<String>,
+}
+
+fn parse_args() -> Option<Configuration> {
     let mut dir = std::path::PathBuf::new();
     let mut pos = Vec::new();
     let mut args = std::env::args();
-    args.next().unwrap();
+    let exe = args.next().unwrap();
     loop {
         match args.next() {
             None => break,
@@ -53,7 +59,7 @@ fn parse_args() -> Option<(std::path::PathBuf, Vec<String>)> {
             .join(PROG_NAME)
             .join("db");
     }
-    Some((dir, pos))
+    Some(Configuration { exe, dir, args: pos })
 }
 
 fn cmd_list(d: &std::path::Path) {
@@ -92,17 +98,20 @@ fn update_cache(force: bool) -> std::io::Result<cache::Cache> {
 }
 
 fn main() {
-    let (dir, args) = match parse_args() {
+    let conf = match parse_args() {
         None => return,
         Some(x) => x,
     };
-    let mut args = args.iter();
+    let mut args = conf.args.iter();
     match args.next().map(|x| x.as_str()).unwrap_or_default() {
-        "" => cmd_list(&dir),
-        "check" => cmd_check(&dir),
-        "currencies" => cmd_currencies(&dir),
+        "" => cmd_list(&conf.dir),
+        "check" => cmd_check(&conf.dir),
+        "currencies" => cmd_currencies(&conf.dir),
         "update-cache" => update_cache(true).and(Ok(())).unwrap(),
-        "plot" => cmd_plot(&dir),
-        x => panic!("invalid command: {}", x),
+        "plot" => cmd_plot(&conf.dir),
+        x => {
+            eprintln!("{}: invalid command: {}", conf.exe, x);
+            std::process::exit(1);
+        },
     }
 }
