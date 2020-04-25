@@ -147,7 +147,7 @@ impl Iterator for Find {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(x) = self.stack.pop() {
-            if !x.is_dir() {
+            if x.is_file() {
                 return Some(Ok(x));
             }
             if let Err(e) = self.read_dir(&x) {
