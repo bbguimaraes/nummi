@@ -96,6 +96,13 @@ impl Entry {
         )
     }
 
+    pub fn check_db(path: &std::path::Path) -> std::io::Result<()> {
+        match DBIterator::new(path)?.find(Result::is_err) {
+            Some(e) => Err(e.unwrap_err()),
+            None => Ok(()),
+        }
+    }
+
     pub fn read_db(path: &std::path::Path) -> std::io::Result<Vec<Entry>> {
         DBIterator::new(path)?.collect()
     }
