@@ -54,6 +54,11 @@ The default command when none is specified is to list all entries in the
 database.
 
 
+### `check`
+
+Loads and verifies all database entries.
+
+
 ### `currencies`
 
 Lists all unique currencies from all entries.
