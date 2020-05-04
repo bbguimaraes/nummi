@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::io::prelude::*;
 
 use super::dec;
 
@@ -95,32 +96,8 @@ impl Entry {
         )
     }
 
-    pub fn read_db_file(
-        r: &mut impl std::io::Read,
-        v: &mut Vec<Entry>,
-    ) -> std::io::Result<()> {
-        let mut s = String::new();
-        r.read_to_string(&mut s)?;
-        Ok(s.lines()
-            .take_while(|&x| x != "")
-            .map(Entry::from_line)
-            .for_each(|x| v.push(x)))
-    }
-
     pub fn read_db(path: &std::path::Path) -> std::io::Result<Vec<Entry>> {
-        use std::io::Result;
-        let mut ret = Vec::new();
-        let mut files =
-            Find::new(path).collect::<Result<Vec<std::path::PathBuf>>>()?;
-        files.sort();
-        files
-            .iter()
-            .filter(|x| x.extension().unwrap_or_default() == "txt")
-            .map(|x|
-                 Entry::read_db_file(
-                     &mut std::fs::File::open(x)?, &mut ret))
-            .collect::<Result<()>>()
-            .and(Ok(ret))
+        DBIterator::new(path)?.collect()
     }
 }
 
@@ -155,6 +132,76 @@ impl Iterator for Find {
             }
         }
         None
+    }
+}
+
+#[derive(Debug)]
+struct DBIterator {
+    files: Vec<std::path::PathBuf>,
+    file_it: Option<FileIterator>,
+}
+
+impl DBIterator {
+    fn new(path: &std::path::Path) -> std::io::Result<DBIterator> {
+        let mut files = Find::new(path)
+            .collect::<std::io::Result<Vec<std::path::PathBuf>>>()?;
+        files.retain(|x| x.extension().unwrap_or_default() == "txt");
+        files.sort();
+        files.reverse();
+        Ok(DBIterator {
+            files,
+            file_it: None,
+        })
+    }
+}
+
+impl Iterator for DBIterator {
+    type Item = std::io::Result<Entry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.file_it.is_none() {
+                match self.files.pop() {
+                    None => return None,
+                    Some(x) => match FileIterator::new(&x) {
+                        Ok(x) => self.file_it = Some(x),
+                        Err(e) => return Some(Err(e)),
+                    },
+                }
+            }
+            if let Some(x) = self.file_it.as_mut().unwrap().next() {
+                return Some(x);
+            }
+            self.file_it = None;
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FileIterator {
+    lines: std::io::Lines<std::io::BufReader<std::fs::File>>,
+}
+
+impl FileIterator {
+    fn new(path: &std::path::Path) -> std::io::Result<FileIterator> {
+        Ok(FileIterator {
+            lines: std::io::BufReader::new(std::fs::File::open(path)?).lines(),
+        })
+    }
+}
+
+impl Iterator for FileIterator {
+    type Item = std::io::Result<Entry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.lines.next() {
+            None => None,
+            Some(x) => match x {
+                Err(e) => Some(Err(e)),
+                Ok(x) if x == "" => None,
+                Ok(x) => Some(Ok(Entry::from_line(&x))),
+            }
+        }
     }
 }
 
@@ -258,36 +305,5 @@ mod tests {
             dec::Decimal::new(1400.0),
             dec::Decimal::new(-1500.0),
         ));
-    }
-
-    #[test]
-    fn read_db_file() -> std::io::Result<()> {
-        let input = b"\
-2020-04-18 -100.00eur t description0
-2020-04-19 200.00usd u description1
-2020-04-20 -300.00gbp v description2
-";
-        let mut v = Vec::new();
-        Entry::read_db_file(&mut &input[..], &mut v)?;
-        assert_eq!(v, vec![Entry {
-            date: String::from("2020-04-18"),
-            value: dec::Decimal::new(-100.0),
-            currency: EUR,
-            tag: b't',
-            text: String::from("description0"),
-        }, Entry {
-            date: String::from("2020-04-19"),
-            value: dec::Decimal::new(200.0),
-            currency: USD,
-            tag: b'u',
-            text: String::from("description1"),
-        }, Entry {
-            date: String::from("2020-04-20"),
-            value: dec::Decimal::new(-300.0),
-            currency: GBP,
-            tag: b'v',
-            text: String::from("description2"),
-        }]);
-        Ok(())
     }
 }
