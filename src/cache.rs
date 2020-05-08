@@ -49,10 +49,8 @@ fn cache_stale(path: &std::path::Path, max_age: u64) -> std::io::Result<bool> {
             .duration_since(meta.modified().unwrap())
             .unwrap()
             > std::time::Duration::new(max_age, 0)),
-        Err(e) => match e.kind() {
-            std::io::ErrorKind::NotFound => Ok(true),
-            _ => Err(e),
-        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e),
     }
 }
 
