@@ -25,14 +25,29 @@ pub struct Entry {
 }
 
 impl Entry {
-    // TODO more detailed errors
-    pub fn from_line(l: &str) -> Entry {
+    pub fn from_line(l: &str) -> Result<Entry, EntryParseError> {
         let mut fields = l.split(' ');
-        let date = fields.next().unwrap();
-        let value = fields.next().unwrap();
+        let date = match fields.next() {
+            None | Some("") => return Err(
+                EntryParseError::new(String::from("missing date"))),
+            Some(x) => x,
+        };
+        let value = fields.next()
+            .ok_or_else(||
+                EntryParseError::new(String::from("missing amount")))
+            .and_then(|x|
+                if x.len() < 7 {
+                    Err(EntryParseError::new(
+                        format!(r#"invalid amount "{}""#, x)))
+                } else {
+                    Ok(x)
+                }
+            )?;
         let mut currency = value[value.len() - 3..].bytes();
-        let tag = fields.next().unwrap().bytes().nth(0).unwrap();
-        Entry {
+        let tag = fields.next()
+            .ok_or_else(|| EntryParseError::new(String::from("missing tag")))?
+            .bytes().next().unwrap();
+        Ok(Entry {
             date: String::from(date),
             value: dec::Decimal::try_from(&value[..value.len() - 3])
                 .expect("invalid decimal in entry"),
@@ -43,7 +58,7 @@ impl Entry {
             ],
             tag,
             text: String::from(&l[date.len() + value.len() + 4..]),
-        }
+        })
     }
 
     pub fn to_line(&self) -> String {
@@ -96,15 +111,44 @@ impl Entry {
         )
     }
 
-    pub fn check_db(path: &std::path::Path) -> std::io::Result<()> {
+    pub fn check_db(path: &std::path::Path) -> Result<(), DBError> {
         match DBIterator::new(path)?.find(Result::is_err) {
             Some(e) => Err(e.unwrap_err()),
             None => Ok(()),
         }
     }
 
-    pub fn read_db(path: &std::path::Path) -> std::io::Result<Vec<Entry>> {
+    pub fn read_db(path: &std::path::Path) -> Result<Vec<Entry>, DBError> {
         DBIterator::new(path)?.collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct EntryParseError {
+    msg: String,
+}
+
+impl EntryParseError {
+    fn new(msg: String) -> EntryParseError {
+        EntryParseError { msg }
+    }
+}
+
+#[derive(Debug)]
+pub enum DBError {
+    ParseError(EntryParseError),
+    IOError(std::io::Error),
+}
+
+impl From<EntryParseError> for DBError {
+    fn from(e: EntryParseError) -> DBError {
+        Self::ParseError(e)
+    }
+}
+
+impl From<std::io::Error> for DBError {
+    fn from(e: std::io::Error) -> DBError {
+        Self::IOError(e)
     }
 }
 
@@ -163,7 +207,7 @@ impl DBIterator {
 }
 
 impl Iterator for DBIterator {
-    type Item = std::io::Result<Entry>;
+    type Item = Result<Entry, DBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -172,7 +216,7 @@ impl Iterator for DBIterator {
                     None => return None,
                     Some(x) => match FileIterator::new(&x) {
                         Ok(x) => self.file_it = Some(x),
-                        Err(e) => return Some(Err(e)),
+                        Err(e) => return Some(Err(e.into())),
                     },
                 }
             }
@@ -198,15 +242,15 @@ impl FileIterator {
 }
 
 impl Iterator for FileIterator {
-    type Item = std::io::Result<Entry>;
+    type Item = Result<Entry, DBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.lines.next() {
             None => None,
             Some(x) => match x {
-                Err(e) => Some(Err(e)),
+                Err(e) => Some(Err(e.into())),
                 Ok(x) if x == "" => None,
-                Ok(x) => Some(Ok(Entry::from_line(&x))),
+                Ok(x) => Some(Entry::from_line(&x).map_err(Into::into)),
             }
         }
     }
@@ -223,13 +267,27 @@ mod tests {
 
     #[test]
     fn from_line() {
-        let e = Entry::from_line(
-            "2020-04-20 -100.00eur t description");
+        let e = Entry::from_line("2020-04-20 -100.00eur t description")
+            .unwrap();
         assert_eq!(e.date, "2020-04-20");
         assert_eq!(e.value, super::dec::Decimal::new(-100.0));
         assert_eq!(e.currency, EUR);
         assert_eq!(e.tag, b't');
         assert_eq!(e.text, "description");
+    }
+
+    #[test]
+    fn parse_error() {
+        assert_eq!(&Entry::from_line("").unwrap_err().msg, "missing date");
+        assert_eq!(
+            &Entry::from_line("2020-05-07").unwrap_err().msg,
+            "missing amount");
+        assert_eq!(
+            &Entry::from_line("2020-05-07 a").unwrap_err().msg,
+            r#"invalid amount "a""#);
+        assert_eq!(
+            &Entry::from_line("2020-05-07 1.00eur").unwrap_err().msg,
+            "missing tag");
     }
 
     #[test]
