@@ -3,6 +3,8 @@ use std::io::prelude::*;
 
 use super::dec;
 
+const DATE_FMT: &str = "%Y-%m-%d";
+
 #[derive(Debug, PartialEq, PartialOrd)]
 pub struct Currency {
     pub name: [u8; 3],
@@ -17,7 +19,7 @@ impl Currency {
 
 #[derive(Debug, PartialEq)]
 pub struct Entry {
-    pub date: String,
+    pub date: chrono::NaiveDate,
     pub value: dec::Decimal,
     pub currency: [u8; 3],
     pub tag: u8,
@@ -48,9 +50,11 @@ impl Entry {
             .ok_or_else(|| EntryParseError::new(String::from("missing tag")))?
             .bytes().next().unwrap();
         Ok(Entry {
-            date: String::from(date),
+            date: Entry::parse_date(date)?,
             value: dec::Decimal::try_from(&value[..value.len() - 3])
-                .expect("invalid decimal in entry"),
+                .map_err(|_|
+                    EntryParseError::new(
+                        String::from("invalid decimal in entry")))?,
             currency: [
                 currency.next().unwrap(),
                 currency.next().unwrap(),
@@ -59,6 +63,12 @@ impl Entry {
             tag,
             text: String::from(&l[date.len() + value.len() + 4..]),
         })
+    }
+
+    fn parse_date(s: &str) -> Result<chrono::NaiveDate, EntryParseError> {
+        chrono::NaiveDate::parse_from_str(s, DATE_FMT)
+            .map_err(|x| EntryParseError::new(
+                format!(r#"invalid date "{}": {}"#, s, x.to_string())))
     }
 
     pub fn to_line(&self) -> String {
@@ -258,6 +268,7 @@ impl Iterator for FileIterator {
 
 #[cfg(test)]
 mod tests {
+    use super::DATE_FMT;
     use super::Entry;
     use super::dec;
 
@@ -269,7 +280,7 @@ mod tests {
     fn from_line() {
         let e = Entry::from_line("2020-04-20 -100.00eur t description")
             .unwrap();
-        assert_eq!(e.date, "2020-04-20");
+        assert_eq!(e.date.format(DATE_FMT).to_string(), "2020-04-20");
         assert_eq!(e.value, super::dec::Decimal::new(-100.0));
         assert_eq!(e.currency, EUR);
         assert_eq!(e.tag, b't');
@@ -293,7 +304,7 @@ mod tests {
     #[test]
     fn to_line() {
         let e = Entry {
-            date: String::from("2020-04-20"),
+            date: chrono::NaiveDate::from_ymd(2020, 4, 20),
             value: super::dec::Decimal::new(-100.0),
             currency: EUR,
             tag: b't',
@@ -308,7 +319,7 @@ mod tests {
             &[EUR, GBP, EUR, GBP, USD]
                 .iter()
                 .map(|&c| Entry {
-                    date: String::from("2020-04-20"),
+                    date: chrono::NaiveDate::from_ymd(2020, 4, 20),
                     value: super::dec::Decimal::new(0.0),
                     currency: c,
                     tag: b't',
@@ -328,7 +339,7 @@ mod tests {
             (dec::Decimal::new(-400.0), USD),
             (dec::Decimal::new( 500.0), EUR),
         ].iter().map(|&(v, c)| Entry {
-            date: String::from("2020-04-20"),
+            date: chrono::NaiveDate::from_ymd(2020, 4, 20),
             value: v,
             currency: c,
             tag: b't',
@@ -356,7 +367,7 @@ mod tests {
             (dec::Decimal::new(-400.0), USD),
             (dec::Decimal::new( 500.0), EUR),
         ].iter().map(|&(v, c)| Entry {
-            date: String::from("2020-04-20"),
+            date: chrono::NaiveDate::from_ymd(2020, 4, 20),
             value: v,
             currency: c,
             tag: b't',

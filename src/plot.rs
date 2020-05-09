@@ -43,20 +43,19 @@ fn gen_data(
     end: &chrono::NaiveDate,
 ) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
-    let series = DateSeries::new(
-        &chrono::NaiveDate::parse_from_str(&v[0].date, "%Y-%m-%d").unwrap());
+    let series = DateSeries::new(&v[0].date);
     let mut sum = dec::Decimal::new(0.0);
     for d in series.take_while(|x| x <= &end) {
-        let date = format!("{}-{:02}", d.year(), d.month());
         // TODO entries are ordered, implement `group_by`
-        let filtered = v.iter().filter(|x| x.date.starts_with(&date));
+        let filtered = v.iter().filter(|x|
+            (x.date.year(), x.date.month()) == (d.year(), d.month()));
         let (pos, neg) = db::Entry::total_with_conversion(filtered, &to_eur);
         let net = pos + neg;
         sum += net;
         write!(
             &mut out,
-            "{} {:.2} {:.2} {:.2} {:.2}\n",
-            date, pos, neg, net, sum,
+            "{}-{:02} {:.2} {:.2} {:.2} {:.2}\n",
+            d.year(), d.month(), pos, neg, net, sum,
         )?;
     }
     Ok(out)
@@ -128,13 +127,13 @@ mod tests {
         const EUR: [u8; 3] = [b'e', b'u', b'r'];
         const USD: [u8; 3] = [b'u', b's', b'd'];
         let entries: Vec<db::Entry> = [
-            ("2020-01-01", dec::Decimal::new(-100.0), EUR),
-            ("2020-01-01", dec::Decimal::new(-200.0), EUR),
-            ("2020-01-02", dec::Decimal::new( 300.0), USD),
-            ("2020-02-01", dec::Decimal::new(-400.0), USD),
-            ("2020-03-01", dec::Decimal::new( 500.0), EUR),
-        ].iter().map(|&(d, v, c)| db::Entry {
-            date: String::from(d),
+            (1, 1, dec::Decimal::new(-100.0), EUR),
+            (1, 1, dec::Decimal::new(-200.0), EUR),
+            (1, 2, dec::Decimal::new( 300.0), USD),
+            (2, 1, dec::Decimal::new(-400.0), USD),
+            (3, 1, dec::Decimal::new( 500.0), EUR),
+        ].iter().map(|&(m, d, v, c)| db::Entry {
+            date: chrono::NaiveDate::from_ymd(2020, m, d),
             value: v,
             currency: c,
             tag: b't',
