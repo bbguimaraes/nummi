@@ -7,10 +7,15 @@ mod plot;
 const PROG_NAME: &'static str = "nummi";
 
 fn usage() {
-    print!(r#"Usage: {exe} [-d <db_dir>] [<cmd>] [<args>]
+    print!(r#"Usage: {exe} [-d <db_dir>] [<options>] [<cmd>] [<args>]
 
   -d, --db-dir path          path to the database directory
                              (default: $XDG_DATA_HOME/{prog_name}/db)
+
+Options:
+
+  --since date               only consider entries at or after `date`
+  --until date               only consider entries at or before `date`
 
 Commands:
 
@@ -30,6 +35,8 @@ Commands:
 struct Configuration {
     exe: String,
     dir: std::path::PathBuf,
+    since: Option<chrono::NaiveDate>,
+    until: Option<chrono::NaiveDate>,
     args: Vec<String>,
 }
 
@@ -59,12 +66,17 @@ fn parse_args() -> Option<Configuration> {
             .join(PROG_NAME)
             .join("db");
     }
-    Some(Configuration { exe, dir, args: pos })
+    Some(Configuration {
+        exe,
+        dir,
+        since: None,
+        until: None,
+        args: pos })
 }
 
 fn cmd_list(d: &std::path::Path) {
     for x in db::Entry::read_db(&d).unwrap() {
-        println!("{}", x.to_line());
+        println!("{}", x.unwrap().to_line());
     }
 }
 
@@ -73,20 +85,21 @@ fn cmd_check(d: &std::path::Path) {
 }
 
 fn cmd_currencies(d: &std::path::Path) {
-    for x in db::Entry::unique_currencies(&db::Entry::read_db(&d).unwrap()) {
+    let mut db = db::Entry::read_db(&d).unwrap();
+    for x in db::Entry::unique_currencies(&mut db).unwrap() {
         println!("{}", std::str::from_utf8(&x).unwrap());
     }
 }
 
 fn cmd_plot(d: &std::path::Path) {
-    let entries = db::Entry::read_db(&d).unwrap();
+    let mut db = db::Entry::read_db(&d).unwrap();
     let currencies = update_cache(false).unwrap().currencies;
     let currencies: std::collections::HashMap<_, _> = currencies
         .iter()
         .map(|x| (x.name, dec::Decimal::new(1.0) / x.to_eur))
         .collect();
     plot::plot(
-        &entries,
+        &mut db,
         &currencies,
         &chrono::Local::now().naive_local().date()).unwrap();
 }

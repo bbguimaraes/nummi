@@ -82,20 +82,23 @@ impl Entry {
         )
     }
 
-    pub fn unique_currencies(v: &[Entry]) -> Vec<[u8; 3]> {
-        v.iter()
-            .map(|x| x.currency)
-            .collect::<std::collections::HashSet<_>>()
+    pub fn unique_currencies(
+        it: impl Iterator<Item = Result<Entry, DBError>>,
+    ) -> Result<Vec<[u8; 3]>, DBError> {
+        Ok(it
+            .map(|x| x.map(|x| x.currency))
+            .collect::<Result<std::collections::HashSet<_>, DBError>>()?
             .iter()
             .copied()
-            .collect()
+            .collect())
     }
 
-    pub fn total<'a>(
-        it: impl Iterator<Item = &'a Entry>,
-    ) -> Vec<([u8; 3], dec::Decimal, dec::Decimal)> {
+    pub fn total(
+        it: impl Iterator<Item = Result<Entry, DBError>>,
+    ) -> Result<Vec<([u8; 3], dec::Decimal, dec::Decimal)>, DBError> {
         let mut ret = std::collections::HashMap::new();
         for x in it {
+            let x = x?;
             let (pos, neg) = ret
                 .entry(x.currency)
                 .or_insert((dec::Decimal::new(0.0), dec::Decimal::new(0.0)));
@@ -105,20 +108,20 @@ impl Entry {
                 *pos += x.value
             }
         }
-        ret.iter().map(|(k, v)| (*k, v.0, v.1)).collect()
+        Ok(ret.iter().map(|(k, v)| (*k, v.0, v.1)).collect())
     }
 
-    pub fn total_with_conversion<'a>(
-        it: impl Iterator<Item = &'a Entry>,
+    pub fn total_with_conversion(
+        it: impl Iterator<Item = Result<Entry, DBError>>,
         conv: &std::collections::HashMap<[u8; 3], dec::Decimal>,
-    ) -> (dec::Decimal, dec::Decimal) {
-        Entry::total(it).iter().fold(
+    ) -> Result<(dec::Decimal, dec::Decimal), DBError> {
+        Entry::total(it).map(|x| x.iter().fold(
             (dec::Decimal::new(0.0), dec::Decimal::new(0.0)),
             |(pos, neg), (cur, p, n)| {
                 let c = conv[cur];
                 (pos + *p * c, neg + *n * c)
             },
-        )
+        ))
     }
 
     pub fn check_db(path: &std::path::Path) -> Result<(), DBError> {
@@ -128,8 +131,8 @@ impl Entry {
         }
     }
 
-    pub fn read_db(path: &std::path::Path) -> Result<Vec<Entry>, DBError> {
-        DBIterator::new(path)?.collect()
+    pub fn read_db(path: &std::path::Path) -> Result<DBIterator, DBError> {
+        DBIterator::new(path).map_err(|x| x.into())
     }
 }
 
@@ -138,17 +141,38 @@ pub struct EntryParseError {
     msg: String,
 }
 
+impl std::fmt::Display for EntryParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EntryParseError{{{}}}", self.msg)
+    }
+}
+
 impl EntryParseError {
     fn new(msg: String) -> EntryParseError {
         EntryParseError { msg }
     }
 }
 
+impl std::error::Error for EntryParseError {}
+
 #[derive(Debug)]
 pub enum DBError {
     ParseError(EntryParseError),
     IOError(std::io::Error),
 }
+
+impl std::fmt::Display for DBError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ParseError(e) =>
+                write!(f, "DBError{{ParseError: {}}}", e.msg),
+            Self::IOError(e) =>
+                write!(f, "DBError{{IOError: {}}}", e),
+        }
+    }
+}
+
+impl std::error::Error for DBError {}
 
 impl From<EntryParseError> for DBError {
     fn from(e: EntryParseError) -> DBError {
@@ -197,7 +221,7 @@ impl Iterator for Find {
 }
 
 #[derive(Debug)]
-struct DBIterator {
+pub struct DBIterator {
     files: Vec<std::path::PathBuf>,
     file_it: Option<FileIterator>,
 }
@@ -269,6 +293,7 @@ impl Iterator for FileIterator {
 #[cfg(test)]
 mod tests {
     use super::DATE_FMT;
+    use super::DBError;
     use super::Entry;
     use super::dec;
 
@@ -316,36 +341,34 @@ mod tests {
     #[test]
     fn unique_currencies() {
         let mut ret = Entry::unique_currencies(
-            &[EUR, GBP, EUR, GBP, USD]
+            [EUR, GBP, EUR, GBP, USD]
                 .iter()
-                .map(|&c| Entry {
+                .map(|&c| Ok(Entry {
                     date: chrono::NaiveDate::from_ymd(2020, 4, 20),
                     value: super::dec::Decimal::new(0.0),
                     currency: c,
                     tag: b't',
                     text: String::from("description"),
-                })
-                .collect::<Vec<Entry>>());
+                }))).unwrap();
         ret.sort();
         assert_eq!(ret, vec![EUR, GBP, USD]);
     }
 
     #[test]
-    fn total() {
-        let v: Vec<Entry> = [
+    fn total() -> Result<(), DBError> {
+        let mut total = Entry::total([
             (dec::Decimal::new(-100.0), EUR),
             (dec::Decimal::new(-200.0), EUR),
             (dec::Decimal::new( 300.0), USD),
             (dec::Decimal::new(-400.0), USD),
             (dec::Decimal::new( 500.0), EUR),
-        ].iter().map(|&(v, c)| Entry {
+        ].iter().map(|&(v, c)| Ok(Entry {
             date: chrono::NaiveDate::from_ymd(2020, 4, 20),
             value: v,
             currency: c,
             tag: b't',
             text: String::from("description"),
-        }).collect();
-        let mut total = Entry::total(v.iter());
+        })))?;
         total.sort_by(|l, r| l.0.cmp(&r.0));
         assert_eq!(total, vec![(
             EUR,
@@ -356,30 +379,32 @@ mod tests {
             dec::Decimal::new(300.0),
             dec::Decimal::new(-400.0),
         )]);
+        Ok(())
     }
 
     #[test]
-    fn total_with_conversion() {
-        let v: Vec<Entry> = [
+    fn total_with_conversion() -> Result<(), DBError> {
+        let conv = [
+            (EUR, dec::Decimal::new(1.0)),
+            (USD, dec::Decimal::new(3.0)),
+        ].iter().copied().collect::<std::collections::HashMap<_, _>>();
+        let ret = Entry::total_with_conversion([
             (dec::Decimal::new(-100.0), EUR),
             (dec::Decimal::new(-200.0), EUR),
             (dec::Decimal::new( 300.0), USD),
             (dec::Decimal::new(-400.0), USD),
             (dec::Decimal::new( 500.0), EUR),
-        ].iter().map(|&(v, c)| Entry {
+        ].iter().map(|&(v, c)| Ok(Entry {
             date: chrono::NaiveDate::from_ymd(2020, 4, 20),
             value: v,
             currency: c,
             tag: b't',
             text: String::from("description"),
-        }).collect();
-        let conv = [
-            (EUR, dec::Decimal::new(1.0)),
-            (USD, dec::Decimal::new(3.0)),
-        ].iter().copied().collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(Entry::total_with_conversion(v.iter(), &conv), (
+        })), &conv)?;
+        assert_eq!(ret, (
             dec::Decimal::new(1400.0),
             dec::Decimal::new(-1500.0),
         ));
+        Ok(())
     }
 }
